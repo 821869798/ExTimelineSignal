@@ -22,36 +22,27 @@ public class TimelineTest : MonoBehaviour
             receiver.RegisterAction("SignalBind", OnSinal);
         }
 
-        Test1();
+        Test().Forget();
+    }
+
+    async UniTask Test()
+    {
+        await this.pd.PlayAsync();
+        await UniTask.Delay(1000);
+        await this.pd.RewindAsync();
+        Debug.Log("Play Timeline Complete");
     }
 
     [ContextMenu("Play Timeline")]
-    void Test1()
+    void TestPlayAsync()
     {
-        ExPlay(pd, false).Forget();
+        this.pd.PlayAsync().Forget();
     }
 
-    public static async UniTask ExPlay(PlayableDirector playableDirector, bool unscaleTime = false)
+    [ContextMenu("Play Timeline reverse")]
+    void TestRewindAsync()
     {
-        playableDirector.initialTime = -1;
-        playableDirector.time = 0;
-        var duration = playableDirector.duration;
-        playableDirector.Evaluate();
-        await UniTask.Yield();
-
-        while (playableDirector.time < duration)
-        {
-            var deltaTime = unscaleTime ? Time.unscaledDeltaTime : Time.deltaTime;
-            playableDirector.time = playableDirector.time + deltaTime;
-            if (playableDirector.time > duration)
-            {
-                playableDirector.time = duration;
-            }
-            playableDirector.Evaluate();
-            await UniTask.Yield();
-        }
-        playableDirector.Stop();
-
+        this.pd.RewindAsync().Forget();
     }
 
     private void OnSinal(ExSignalReceiverBinding signalReceiverBinding, ExSignalEmitter signalEmitter)

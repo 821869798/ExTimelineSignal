@@ -2,7 +2,7 @@ namespace UnityEngine.Timeline
 {
     public class ExSignalEmitter : Marker
     {
-        [SerializeField] bool m_Retroactive;
+        [SerializeField] bool m_Retroactive = true;
         [SerializeField] bool m_EmitOnce;
 
         /// <summary>

@@ -20,6 +20,7 @@ namespace UnityEngine.Timeline
         {
             this.director = director;
             this.signalReceiver = signalReceiver;
+            CheckEvaluatePlayType();
         }
 
         #region Singal Mananger
@@ -119,6 +120,51 @@ namespace UnityEngine.Timeline
             }
         }
 
+        // CanRestoreNotificationReverse 反向播放时，是否可以恢复通知
+        static bool CanRestoreNotificationReverse(NotificationEntry e, FrameData info, double currentTime, double previousTime)
+        {
+            if (e.triggerOnce)
+                return false;
+            if (info.timeLooped)
+                return true;
+
+            //case 1111595: restore the notification if the time is manually set before it
+            return previousTime < currentTime && currentTime >= e.time;
+        }
+
+        // TriggerNotificationsInRangeReverse 反向播放触发
+        void TriggerNotificationsInRangeReverse(double start, double end, FrameData info, Playable playable, bool checkState)
+        {
+            if (start >= end)
+            {
+                var playMode = Application.isPlaying;
+                for (var i = 0; i < m_Notifications.Count; i++)
+                {
+                    var e = m_Notifications[i];
+                    if (e.notificationFired && (checkState || e.triggerOnce))
+                        continue;
+
+                    var notificationTime = e.time;
+                    if (e.prewarm && notificationTime > end && (e.triggerInEditor || playMode))
+                    {
+                        Trigger_internal(playable, info.output, ref e);
+                        m_Notifications[i] = e;
+                    }
+                    else
+                    {
+                        if (notificationTime > start || notificationTime < end)
+                            continue;
+
+                        if (e.triggerInEditor || playMode)
+                        {
+                            Trigger_internal(playable, info.output, ref e);
+                            m_Notifications[i] = e;
+                        }
+                    }
+                }
+            }
+        }
+
         void Trigger_internal(Playable playable, PlayableOutput output, ref NotificationEntry e)
         {
             //output.PushNotification(playable, e.payload);
@@ -136,10 +182,9 @@ namespace UnityEngine.Timeline
         {
             //有可能存在 手动倒播到一半 且触发了一些clip，即停止
             //然后再重新正常播放 所以统一在正常播放开始时，重置clip状态
-            isRewind = false;
             if (director.initialTime != 0 && director.state == PlayState.Paused)
             {
-                CheckEvaluatePlayType();
+                director.initialTime = 0;
             }
             SortNotifications();
             var currentTime = playable.GetTime();
@@ -153,7 +198,7 @@ namespace UnityEngine.Timeline
                     m_Notifications[i] = notification;
                 }
             }
-            m_PreviousTime = playable.GetTime();
+            m_PreviousTime = currentTime;
             base.OnGraphStart(playable);
         }
 
@@ -164,53 +209,43 @@ namespace UnityEngine.Timeline
             if (director.initialTime != 0 && director.state == PlayState.Paused)
             {
                 CheckEvaluatePlayType();
-                //ResetAllClip(playable);
             }
 
             SortNotifications();
             var currentTime = playable.GetTime();
-            TriggerNotificationsInRange(m_PreviousTime, currentTime, info,
-                   playable, true);
-
-            for (var i = 0; i < m_Notifications.Count; ++i)
+            if (isRewind)
             {
-                var e = m_Notifications[i];
-                if (e.notificationFired && CanRestoreNotification(e, info, currentTime, m_PreviousTime))
+                TriggerNotificationsInRangeReverse(m_PreviousTime, currentTime, info,
+                                       playable, true);
+
+                for (var i = 0; i < m_Notifications.Count; ++i)
                 {
-                    Restore_internal(ref e);
-                    m_Notifications[i] = e;
+                    var e = m_Notifications[i];
+                    if (e.notificationFired && CanRestoreNotificationReverse(e, info, currentTime, m_PreviousTime))
+                    {
+                        Restore_internal(ref e);
+                        m_Notifications[i] = e;
+                    }
                 }
             }
+            else
+            {
+
+                TriggerNotificationsInRange(m_PreviousTime, currentTime, info,
+                       playable, true);
+
+                for (var i = 0; i < m_Notifications.Count; ++i)
+                {
+                    var e = m_Notifications[i];
+                    if (e.notificationFired && CanRestoreNotification(e, info, currentTime, m_PreviousTime))
+                    {
+                        Restore_internal(ref e);
+                        m_Notifications[i] = e;
+                    }
+                }
+            }
+
             m_PreviousTime = currentTime;
-
-            //int inputCount = playable.GetInputCount();
-            //for (int i = 0; i < inputCount; i++)
-            //{
-            //    ScriptPlayable<CodeActionBehaviour> inputPlayable = (ScriptPlayable<CodeActionBehaviour>)playable.GetInput(i);
-
-            //    CodeActionBehaviour clipBehaviour = inputPlayable.GetBehaviour();
-
-            //    //如果事件没有开启跳帧补救 或已经完成 则不进行处理
-            //    if (clipBehaviour == null || !clipBehaviour.isRetroActive || clipBehaviour.hasInvoked)
-            //        continue;
-
-
-            //    //倒播处理 手动
-            //    if (isRewind)
-            //    {
-            //        if (director.time <= clipBehaviour.endSecond)
-            //        {
-            //            clipBehaviour.PlayBehaviour(playable, info);
-            //        }
-            //    }
-            //    else   //正播处理
-            //    {
-            //        if (director.time >= clipBehaviour.startSecond)
-            //        {
-            //            clipBehaviour.PlayBehaviour(playable, info);
-            //        }
-            //    }
-            //}
 
             base.ProcessFrame(playable, info, playerData);
         }
@@ -220,15 +255,13 @@ namespace UnityEngine.Timeline
         /// </summary>
         void CheckEvaluatePlayType()
         {
-            if (director.initialTime <= -1)
+            if (director.initialTime > 0)
             {
                 isRewind = false;
-                director.initialTime = 0;
             }
-            else if (director.initialTime >= director.duration)
+            else if (director.initialTime < 0)
             {
                 isRewind = true;
-                director.initialTime = 0;
             }
         }
 
